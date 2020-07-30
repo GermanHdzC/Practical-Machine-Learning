@@ -1,0 +1,192 @@
+---
+title: "Practical Machine Learning"
+author: "Germán Hernández"
+date: "30/7/2020"
+output: html_document
+---
+ 
+ 
+# Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).Below are the links to training data and testing data that we are using to build the model.
+
+
+```{r , echo=TRUE}
+Url1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+Url2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+```
+
+# Model Construction
+
+The basic aim of this prediction assignment is to build two classifier models and compare them with each other to derive conclusions.I am using decision trees and random forest classifier methods in this scenario.Finally i combine the two predictor models by model stacking and use the new predictor model to make the preictions.Out of the three models the model wil be choosen to predict the test data. The models are built to predict the  classe variable, a factor variable with 5 levels.
+
+# Cross-validation
+
+When considering the size of the training dataset it would be better if we split the training dataset into training subset,testing subset and the validation subset.First we would train the training sub dataset with the both trees and random forest models and use the validation dataset on the combined predictor model.
+```{r,echo=TRUE}
+train_set <- read.csv(url(Url1),na.strings=c("NA","#DIV/0!",""))
+test_set <- read.csv(url(Url2),na.strings=c("NA","#DIV/0!",""))
+```
+
+```{r,echo=TRUE}
+dim(train_set)
+```
+
+# Expected Out of Sample Error
+
+Expected out of sample error is the most crucial factor which determine how succesful our model is.Here the expected out of sample error will be calculated from the test dataset and it will be calculated based on the observations that our model misclassified.So model is more useful when the out of sample error is minimized.
+
+## 1.Data pre-processing
+
+```{r, echo=TRUE}
+str(train_set)
+```
+
+Removing variables with too many missing values
+
+```{r,echo=TRUE}
+train_set_slash <- train_set
+for (i in 1:ncol(train_set)) {
+  if( sum( is.na( train_set[, i] ) ) /nrow(train_set) >= .4 ){
+    for(j in 1:ncol(train_set_slash)) {
+            if( length( grep(names(train_set[i]), names(train_set_slash)[j]) ) ==1)  {
+                train_set_slash <- train_set_slash[ , -j]
+            }   
+    }
+  }  
+}
+## The above function is used to remove the variables from dataset with missing values more than 40%, the same  is done for the tesing dataset.
+```
+```{r,echo=TRUE}
+test_set_slash <- test_set
+for (i in 1:ncol(test_set)) {
+  if( sum( is.na( test_set[, i] ) ) /nrow(test_set) >= .4 ){
+    for(j in 1:ncol(test_set_slash)) {
+            if( length( grep(names(test_set[i]), names(test_set_slash)[j]) ) ==1)  {
+                test_set_slash <- test_set_slash[ , -j]
+            }   
+    }
+  }  
+}
+```
+
+```{r , echo=TRUE}
+train_set <- train_set_slash
+test_set <- test_set_slash
+dim(train_set);dim(test_set)
+```
+
+We can see that the number of variables have reduced to 60.
+
+Removing data with near zero variance
+
+```{r,echo=TRUE}
+library(caret);library(rpart);library(rpart.plot);library(rattle);library(randomForest);library(RColorBrewer)
+NZV <- nearZeroVar(train_set, saveMetrics=TRUE)
+```
+```{r,echo=TRUE}
+train_set <- train_set[,NZV$nzv == "FALSE"]
+test_set <- test_set[,NZV$nzv == "FALSE"]
+```
+```{r,echo=TRUE}
+dim(train_set);dim(test_set)
+```
+
+We can  see that only one dimension is reduced.Let's check if there are any missing values that needed to be imputed
+```{r}
+sum(is.na(train_set)==TRUE)
+```
+```{r}
+test_set <- test_set[,-60]
+```
+
+Dropping the id column in the both datasets
+
+```{r,echo=TRUE}
+train_set <- train_set[,-1]
+test_set <- test_set[,-1]
+```
+
+## 2.Data slicing
+
+```{r}
+inBuild_data <- createDataPartition(y = train_set$classe,p = .7,list = FALSE)
+validation_subset <- train_set[-inBuild_data,] ;Build_data <- train_set[inBuild_data,]
+in_train<- createDataPartition(y= Build_data$classe,p = .7,list = FALSE)
+train_subset <- Build_data[in_train,]
+test_subset <- Build_data[-in_train,]
+```
+
+In here the data has been sliced into 3 parts train_subset,test_subtest and validation_subset repectively.We are using a validation set here in order reduce the out of sample error because we are going to trian the first two models and combine them to form a better model.
+
+```{r,echo=TRUE}
+dim(train_subset)
+```
+```{r,echo=TRUE}
+dim(test_subset)
+```
+
+```{r,echo=TRUE}
+dim(validation_subset)
+```
+
+
+## 3.Model Building
+
+**Fitting the randomForest model**
+
+```{r,echo=TRUE}
+train_subset$classe <- as.factor(train_subset$classe)
+Modelfit_1 <- randomForest(classe ~ ., data = train_subset)
+```
+
+```{r,echo=TRUE}
+test_subset$classe <- as.factor(test_subset$classe)
+predictions_1 <- predict(Modelfit_1, test_subset)
+```
+
+```{r,echo=TRUE}
+confusionMatrix(predictions_1, test_subset$classe)
+```
+
+**Fitting the Decision Trees Model**
+
+```{r,echo=TRUE}
+Modelfit_2 <- rpart(train_subset$classe ~ ., data = train_subset,method = "class")
+```
+
+```{r,echo=TRUE}
+fancyRpartPlot(Modelfit_2)
+```
+
+```{r,echo=TRUE}
+predictions_2 <- predict(Modelfit_2,test_subset,type = "class")
+```
+
+```{r,echo=TRUE}
+confusionMatrix(predictions_2, test_subset$classe)
+```
+
+Although at the begining of the assignment my intention was to combine the two predictor models ,by looking at the accuracy levels of the two models its not necessary to combine the two preictor model. RandomForest model is best model amomg the two models according to the accuracy level so let's choose that model.Lets test the choosen model on the validation test.
+
+
+```{r,echo=TRUE}
+validation_subset$classe <- as.factor(validation_subset$classe)
+predictions_3 <- predict(Modelfit_1,validation_subset)
+```
+
+```{r,echo=TRUE}
+confusionMatrix(predictions_3, validation_subset$classe)
+```
+
+## 4.Tesiting the model on the Test set
+
+```{r,echo=TRUE}
+train_set$classe <- as.factor(train_set$classe)
+Final_model <- randomForest(classe ~. ,data = train_subset )
+```
+
+```{r,echo=TRUE}
+Final_predictions <- predict(Final_model,test_set)
+Final_predictions
+```
